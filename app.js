@@ -12,38 +12,48 @@ const state = {
         { color: '#0000ff', weight: 3, type: 'pen' },
         { color: '#ff0000', weight: 3, type: 'pen' },
         { color: 'rgba(255, 220, 0, 0.5)', weight: 30, type: 'highlighter' },
-        { type: 'eraser', weight: 25 }
+        { type: 'eraser', weight: 25, color: 'rgba(0,0,0,1)' }
     ],
-    pages: [] // [{strokes: []}]
+    pages: [] 
 };
 
 const penColors = ['#000000', '#00008b', '#ff0000', '#006400', '#800080', '#ffa500'];
 const highColors = ['#ffff0088', '#ffa50088', '#90ee9088', '#add8e688', '#ffc0cb88'];
 
-// --- File System Logic ---
+// --- Library & File System ---
 async function initDirectory() {
-    dirHandle = await window.showDirectoryPicker();
-    document.getElementById('setup-view').classList.add('hidden');
-    document.getElementById('library-view').classList.remove('hidden');
-    refreshLibrary();
+    try {
+        dirHandle = await window.showDirectoryPicker();
+        document.getElementById('setup-view').classList.add('hidden');
+        document.getElementById('library-view').classList.remove('hidden');
+        document.getElementById('folder-name').innerText = dirHandle.name;
+        refreshLibrary();
+    } catch(e) { console.error("Access denied"); }
 }
 
 async function refreshLibrary() {
     state.library = [];
     for await (const entry of dirHandle.values()) {
-        if (entry.name.endsWith('.pdf')) {
-            state.library.push({ name: entry.name, handle: entry, isBlank: false });
+        if (entry.name.endsWith('.pdf') || entry.name.endsWith('.json')) {
+            state.library.push({ name: entry.name, handle: entry, isBlank: entry.name.endsWith('.json') });
         }
     }
     renderLibrary();
 }
 
 async function addNewPdf() {
-    const [fileHandle] = await window.showOpenFilePicker({ types: [{ description: 'PDF Files', accept: {'application/pdf': ['.pdf']} }] });
-    // This part is complex because we need to copy it into our selected directory
-    // For this prototype, we'll just add it to the view
+    const [fileHandle] = await window.showOpenFilePicker({ types: [{ accept: {'application/pdf': ['.pdf']} }] });
     state.library.push({ name: fileHandle.name, handle: fileHandle, isBlank: false });
     renderLibrary();
+}
+
+async function createNewBlank() {
+    const name = prompt("Notebook Name:") || "Untitled";
+    const fileName = name + ".json";
+    const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+    state.library.push({ name: fileName, handle: fileHandle, isBlank: true });
+    renderLibrary();
+    openEditor(state.library[state.library.length-1]);
 }
 
 function renderLibrary() {
@@ -53,12 +63,12 @@ function renderLibrary() {
         const card = document.createElement('div');
         card.className = 'pdf-card';
         card.onclick = () => openEditor(doc);
-        card.innerHTML = `<div class="preview-container">PDF</div><div>${doc.name}</div>`;
+        card.innerHTML = `<div class="preview-container">${doc.isBlank ? '📓' : 'PDF'}</div><div class="file-name">${doc.name}</div>`;
         grid.appendChild(card);
     });
 }
 
-// --- Editor & Rendering ---
+// --- Editor Logic ---
 async function openEditor(doc) {
     state.activeDoc = doc;
     state.pages = [];
@@ -67,36 +77,46 @@ async function openEditor(doc) {
     const container = document.getElementById('document-container');
     container.innerHTML = '';
 
-    const file = await doc.handle.getFile();
-    const arrayBuffer = await file.arrayBuffer();
-    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const vp = page.getViewport({ scale: 1.5 });
-        const pageIdx = state.pages.length;
-        state.pages.push({ strokes: [], redo: [] });
-
-        const wrapper = document.createElement('div');
-        wrapper.className = 'page-wrapper';
-        wrapper.style.width = vp.width + 'px'; wrapper.style.height = vp.height + 'px';
-
-        const bg = document.createElement('canvas');
-        const fg = document.createElement('canvas');
-        [bg, fg].forEach(c => { 
-            c.width = vp.width * 2; c.height = vp.height * 2; 
-            c.getContext('2d').scale(2,2); 
-        });
-
-        wrapper.append(bg, fg);
-        container.appendChild(wrapper);
-        await page.render({ canvasContext: bg.getContext('2d'), viewport: vp }).promise;
-        initDrawing(fg, pageIdx);
+    if (doc.isBlank) {
+        addEditorPage(container, 816, 1056);
+    } else {
+        const file = await doc.handle.getFile();
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const vp = page.getViewport({ scale: 1.5 });
+            const { bg, fg } = addEditorPage(container, vp.width, vp.height);
+            await page.render({ canvasContext: bg.getContext('2d'), viewport: vp }).promise;
+        }
     }
     selectTool(0);
 }
 
-// --- Drawing Logic ---
+function addEditorPage(container, w, h) {
+    const pageIdx = state.pages.length;
+    state.pages.push({ strokes: [], redo: [] });
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page-wrapper';
+    wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
+
+    const bg = document.createElement('canvas');
+    const fg = document.createElement('canvas');
+    fg.className = 'draw-layer';
+
+    [bg, fg].forEach(c => {
+        c.width = w * 2; c.height = h * 2;
+        c.getContext('2d').scale(2, 2);
+    });
+
+    wrapper.append(bg, fg);
+    container.appendChild(wrapper);
+    initDrawing(fg, pageIdx);
+    return { bg, fg };
+}
+
+// --- Drawing Engine ---
 function initDrawing(canvas, pageIdx) {
     const ctx = canvas.getContext('2d');
     let isDrawing = false, currentStroke = null, start = null;
@@ -105,17 +125,19 @@ function initDrawing(canvas, pageIdx) {
         if (e.pointerType !== 'pen' && e.buttons !== 1) return;
         isDrawing = true;
         start = { x: e.offsetX, y: e.offsetY };
-        currentStroke = { tool: {...state.tools[state.activeTool]}, points: [start] };
+        currentStroke = { tool: JSON.parse(JSON.stringify(state.tools[state.activeTool])), points: [start] };
     });
 
     canvas.addEventListener('pointermove', e => {
         if (!isDrawing) return;
         const x = e.offsetX, y = e.offsetY;
-        if (currentStroke.tool.type === 'eraser' && state.eraserMode === 'stroke') {
+        const tool = currentStroke.tool;
+
+        if (tool.type === 'eraser' && state.eraserMode === 'stroke') {
             state.pages[pageIdx].strokes = state.pages[pageIdx].strokes.filter(s => 
-                !s.points.some(p => Math.hypot(p.x - x, p.y - y) < 15)
+                !s.points.some(p => Math.hypot(p.x - x, p.y - y) < 20)
             );
-        } else if (currentStroke.tool.type === 'highlighter') {
+        } else if (tool.type === 'highlighter') {
             currentStroke.points = [start, {x, y}];
         } else {
             currentStroke.points.push({x, y});
@@ -162,14 +184,24 @@ function render(ctx, pageIdx, live = null) {
     });
 }
 
-// --- UI Logic ---
+// --- Controls ---
 function selectTool(i) {
     state.activeTool = i;
     document.querySelectorAll('.tool-btn').forEach((b, idx) => b.classList.toggle('active', idx === i));
     document.getElementById('eraser-modes').classList.toggle('hidden', i !== 4);
     document.getElementById('color-palette').classList.toggle('hidden', i === 4);
+    
+    const tool = state.tools[i];
+    document.getElementById('weightSlider').value = tool.weight;
+    document.getElementById('weightLabel').innerText = tool.weight + 'px';
     renderPalette();
 }
+
+document.getElementById('weightSlider').addEventListener('input', (e) => {
+    const val = e.target.value;
+    state.tools[state.activeTool].weight = parseInt(val);
+    document.getElementById('weightLabel').innerText = val + 'px';
+});
 
 function renderPalette() {
     const pal = document.getElementById('color-palette');
@@ -177,15 +209,36 @@ function renderPalette() {
     const colors = state.activeTool === 3 ? highColors : penColors;
     colors.forEach(c => {
         const s = document.createElement('div');
-        s.className = 'color-swatch';
+        s.className = 'color-swatch' + (state.tools[state.activeTool].color === c ? ' active' : '');
         s.style.background = c;
-        s.onclick = () => { state.tools[state.activeTool].color = c; selectTool(state.activeTool); };
+        s.onclick = () => { state.tools[state.activeTool].color = c; renderPalette(); };
         pal.appendChild(s);
     });
 }
 
-function undo() { /* Implementation follows same render pattern */ }
+async function saveActiveDocument() {
+    if (!state.activeDoc || !state.activeDoc.handle) return;
+    const writable = await state.activeDoc.handle.createWritable();
+    // Saving the vector data as a JSON string for now
+    await writable.write(JSON.stringify(state.pages));
+    await writable.close();
+    alert("Saved Successfully!");
+}
+
 function showLibrary() { 
     document.getElementById('editor-view').classList.add('hidden');
     document.getElementById('library-view').classList.remove('hidden');
+    refreshLibrary();
+}
+
+function toggleMenu() {
+    state.isCollapsed = !state.isCollapsed;
+    document.getElementById('toolbar').classList.toggle('collapsed', state.isCollapsed);
+    document.getElementById('menu-dot').classList.toggle('hidden', !state.isCollapsed);
+}
+
+function setEraserMode(m) {
+    state.eraserMode = m;
+    document.getElementById('mode-pixel').classList.toggle('active', m === 'pixel');
+    document.getElementById('mode-stroke').classList.toggle('active', m === 'stroke');
 }
