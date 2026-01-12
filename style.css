@@ -6,64 +6,52 @@
 
 body, html { 
     margin: 0; padding: 0; height: 100%; width: 100%;
-    background-color: #e5e7eb; overflow: hidden;
-    font-family: -apple-system, system-ui, sans-serif;
+    background-color: #f4f4f7; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* Floating Menu */
+.hidden { display: none !important; }
+
+/* Library Styles */
+#library-view { padding: 40px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100vh; }
+.library-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+.upload-btn { background: var(--accent); color: white; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-weight: 600; }
+
+#file-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; }
+.pdf-card { background: white; border-radius: 15px; padding: 15px; box-shadow: var(--page-shadow); cursor: pointer; transition: 0.2s; }
+.pdf-card:hover { transform: translateY(-5px); }
+.preview-container { width: 100%; aspect-ratio: 8.5 / 11; background: #eee; border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+.preview-container img { width: 100%; height: 100%; object-fit: cover; }
+.file-name { font-size: 14px; font-weight: 600; text-align: center; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Editor UI */
 #toolbar {
-    position: fixed; top: 20px; left: 50%;
-    transform: translateX(-50%);
-    background: var(--glass);
-    backdrop-filter: blur(15px);
-    border-radius: 20px;
-    padding: 10px 25px;
-    display: flex; align-items: center;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-    z-index: 1000;
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--glass); backdrop-filter: blur(15px);
+    border-radius: 20px; padding: 10px 25px; display: flex;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 1000;
     transition: transform 0.4s ease, opacity 0.3s ease;
 }
-
 #toolbar.collapsed { transform: translate(-50%, -120%); opacity: 0; pointer-events: none; }
 
 #menu-dot {
-    position: fixed; top: 20px; right: 20px;
-    width: 45px; height: 45px;
-    background: var(--glass);
-    backdrop-filter: blur(10px);
-    border-radius: 50%;
+    position: fixed; top: 20px; right: 20px; width: 45px; height: 45px;
+    background: var(--glass); backdrop-filter: blur(10px); border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; box-shadow: var(--page-shadow);
-    z-index: 1001; font-size: 24px; color: var(--accent);
+    cursor: pointer; box-shadow: var(--page-shadow); z-index: 1001; color: var(--accent);
 }
 
-.hidden { display: none; }
-
-/* Menu Elements */
 .menu-content { display: flex; align-items: center; gap: 20px; }
-.tool-btn { 
-    border: none; background: transparent; padding: 10px 15px; 
-    border-radius: 10px; cursor: pointer; font-weight: bold;
-}
+.tool-btn { border: none; background: transparent; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; }
 .tool-btn.active { background: var(--accent); color: white; }
+.divider { width: 1px; height: 30px; background: #ddd; }
 
 #color-palette { display: flex; gap: 6px; }
-.color-swatch { 
-    width: 24px; height: 24px; border-radius: 50%; 
-    cursor: pointer; border: 2px solid transparent; 
-}
+.color-swatch { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
 .color-swatch.active { border-color: #333; transform: scale(1.1); }
 
-/* Document Area */
-#document-container {
-    height: 100vh; overflow-y: auto;
-    padding-top: 120px; display: flex; flex-direction: column; align-items: center;
-}
-
-.page-wrapper {
-    position: relative; width: 816px; height: 1056px; /* 8.5 x 11 */
-    background: white; margin-bottom: 50px;
-    box-shadow: var(--page-shadow);
-}
-
+/* Document Layout */
+#document-container { height: 100vh; overflow-y: auto; padding-top: 100px; display: flex; flex-direction: column; align-items: center; }
+.page-wrapper { position: relative; background: white; margin-bottom: 40px; box-shadow: var(--page-shadow); }
 canvas { position: absolute; top: 0; left: 0; touch-action: none; }
+#back-to-library { position: fixed; top: 20px; left: 20px; z-index: 1100; border: none; background: var(--glass); padding: 10px 15px; border-radius: 10px; cursor: pointer; backdrop-filter: blur(10px); font-weight: bold; }
