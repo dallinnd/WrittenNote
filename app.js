@@ -1,9 +1,14 @@
+const pdfjsLib = window['pdfjs-dist/build/pdf'];
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// --- State ---
 const state = {
+    library: [],
     activeTool: 0,
     tools: [
-        { color: '#000000', weight: 3, type: 'pen' },   // Pen 1
-        { color: '#0000ff', weight: 3, type: 'pen' },   // Pen 2
-        { color: '#ff0000', weight: 3, type: 'pen' },   // Pen 3
+        { color: '#000000', weight: 3, type: 'pen' },
+        { color: '#0000ff', weight: 3, type: 'pen' },
+        { color: '#ff0000', weight: 3, type: 'pen' },
         { color: '#ffff00', weight: 25, type: 'highlighter' }
     ],
     isCollapsed: false
@@ -12,43 +17,134 @@ const state = {
 const penColors = ['#add8e6', '#00008b', '#000000', '#ff0000', '#90ee90', '#006400', '#e6e6fa', '#800080', '#ffa500', '#40e0d0'];
 const highColors = ['#ffff00', '#ffa500', '#90ee90', '#add8e6', '#ffc0cb'];
 
-document.addEventListener('DOMContentLoaded', () => {
-    addNewPage(); // Create first page
-    renderPalette();
+// --- Library Logic ---
+document.getElementById('pdf-upload').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdfDoc.getPage(1);
+    
+    const canvas = document.createElement('canvas');
+    const viewport = page.getViewport({ scale: 0.3 });
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+    state.library.push({
+        id: Date.now(),
+        name: file.name,
+        data: arrayBuffer,
+        thumbnail: canvas.toDataURL()
+    });
+    renderLibrary();
 });
 
+function renderLibrary() {
+    const grid = document.getElementById('file-grid');
+    grid.innerHTML = '';
+    state.library.forEach(doc => {
+        const card = document.createElement('div');
+        card.className = 'pdf-card';
+        card.onclick = () => openEditor(doc);
+        card.innerHTML = `<div class="preview-container"><img src="${doc.thumbnail}"></div><div class="file-name">${doc.name}</div>`;
+        grid.appendChild(card);
+    });
+}
+
+// --- Editor Transition ---
+async function openEditor(doc) {
+    document.getElementById('library-view').classList.add('hidden');
+    document.getElementById('editor-view').classList.remove('hidden');
+    const container = document.getElementById('document-container');
+    container.innerHTML = '';
+
+    const pdfDoc = await pdfjsLib.getDocument({ data: doc.data }).promise;
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const wrapper = document.createElement('div');
+        wrapper.className = 'page-wrapper';
+        wrapper.style.width = viewport.width + 'px';
+        wrapper.style.height = viewport.height + 'px';
+
+        const bg = document.createElement('canvas');
+        bg.width = viewport.width; bg.height = viewport.height;
+        const fg = document.createElement('canvas');
+        fg.className = 'draw-layer';
+        fg.width = viewport.width; fg.height = viewport.height;
+
+        wrapper.appendChild(bg);
+        wrapper.appendChild(fg);
+        container.appendChild(wrapper);
+
+        await page.render({ canvasContext: bg.getContext('2d'), viewport }).promise;
+        initDrawing(fg);
+    }
+    renderPalette();
+}
+
+function showLibrary() {
+    document.getElementById('library-view').classList.remove('hidden');
+    document.getElementById('editor-view').classList.add('hidden');
+}
+
+// --- Drawing Engine ---
+function initDrawing(canvas) {
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let points = [];
+
+    canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType !== 'pen' && e.buttons !== 1) return;
+        isDrawing = true;
+        const tool = state.tools[state.activeTool];
+        ctx.strokeStyle = tool.type === 'highlighter' ? tool.color + '88' : tool.color;
+        ctx.lineWidth = tool.weight;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.globalCompositeOperation = tool.type === 'highlighter' ? 'multiply' : 'source-over';
+        points = [{ x: e.offsetX, y: e.offsetY }];
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+        if (!isDrawing) return;
+        points.push({ x: e.offsetX, y: e.offsetY });
+        if (points.length > 2) {
+            ctx.beginPath();
+            ctx.moveTo(points[points.length-3].x, points[points.length-3].y);
+            const mid = { x: (points[points.length-2].x + points[points.length-1].x)/2, y: (points[points.length-2].y + points[points.length-1].y)/2 };
+            ctx.quadraticCurveTo(points[points.length-2].x, points[points.length-2].y, mid.x, mid.y);
+            ctx.stroke();
+        }
+    });
+    canvas.addEventListener('pointerup', () => isDrawing = false);
+}
+
+// --- UI Controls ---
 function selectTool(index) {
     state.activeTool = index;
     document.querySelectorAll('.tool-btn').forEach((b, i) => b.classList.toggle('active', i === index));
     renderPalette();
-    updateToolControls();
+    const tool = state.tools[index];
+    document.getElementById('weightSlider').value = tool.weight;
+    document.getElementById('weightLabel').innerText = tool.weight + 'px';
 }
 
 function renderPalette() {
     const palette = document.getElementById('color-palette');
     palette.innerHTML = '';
     const colors = state.activeTool === 3 ? highColors : penColors;
-    
     colors.forEach(c => {
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch' + (state.tools[state.activeTool].color === c ? ' active' : '');
         swatch.style.backgroundColor = c;
-        swatch.onclick = () => {
-            state.tools[state.activeTool].color = c;
-            renderPalette();
-        };
+        swatch.onclick = () => { state.tools[state.activeTool].color = c; renderPalette(); };
         palette.appendChild(swatch);
     });
 }
 
-function updateToolControls() {
-    const tool = state.tools[state.activeTool];
-    document.getElementById('weightSlider').value = tool.weight;
-    document.getElementById('weightLabel').innerText = tool.weight + 'px';
-}
-
 document.getElementById('weightSlider').oninput = (e) => {
-    state.tools[state.activeTool].weight = parseInt(e.target.value);
+    state.tools[state.activeTool].weight = e.target.value;
     document.getElementById('weightLabel').innerText = e.target.value + 'px';
 };
 
@@ -57,59 +153,3 @@ function toggleMenu() {
     document.getElementById('toolbar').classList.toggle('collapsed', state.isCollapsed);
     document.getElementById('menu-dot').classList.toggle('hidden', !state.isCollapsed);
 }
-
-// Drawing Engine
-function initCanvas(canvas) {
-    const ctx = canvas.getContext('2d');
-    canvas.width = 816; canvas.height = 1056;
-    let isDrawing = false;
-    let points = [];
-
-    canvas.addEventListener('pointerdown', (e) => {
-        if (e.pointerType !== 'pen' && e.buttons !== 1) return;
-        isDrawing = true;
-        const tool = state.tools[state.activeTool];
-        
-        ctx.strokeStyle = tool.type === 'highlighter' ? tool.color + '66' : tool.color;
-        ctx.lineWidth = tool.weight;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalCompositeOperation = tool.type === 'highlighter' ? 'multiply' : 'source-over';
-        
-        points = [{ x: e.offsetX, y: e.offsetY }];
-    });
-
-    canvas.addEventListener('pointermove', (e) => {
-        if (!isDrawing) return;
-        points.push({ x: e.offsetX, y: e.offsetY });
-
-        if (points.length > 2) {
-            ctx.beginPath();
-            ctx.moveTo(points[points.length - 3].x, points[points.length - 3].y);
-            const midPoint = {
-                x: (points[points.length - 2].x + points[points.length - 1].x) / 2,
-                y: (points[points.length - 2].y + points[points.length - 1].y) / 2
-            };
-            ctx.quadraticCurveTo(points[points.length - 2].x, points[points.length - 2].y, midPoint.x, midPoint.y);
-            ctx.stroke();
-        }
-    });
-
-    canvas.addEventListener('pointerup', () => isDrawing = false);
-}
-
-function addNewPage() {
-    const container = document.getElementById('document-container');
-    const wrapper = document.createElement('div');
-    wrapper.className = 'page-wrapper';
-    wrapper.innerHTML = `<canvas class="draw-layer"></canvas>`;
-    container.appendChild(wrapper);
-    initCanvas(wrapper.querySelector('.draw-layer'));
-}
-
-// Auto-add page on scroll
-document.getElementById('document-container').onscroll = (e) => {
-    if (e.target.scrollHeight - e.target.scrollTop <= e.target.clientHeight + 10) {
-        addNewPage();
-    }
-};
