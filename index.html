@@ -12,13 +12,22 @@
     <div id="library-view">
         <header class="library-header">
             <h1>My Documents</h1>
-            <label class="upload-btn">
-                + Add PDF
-                <input type="file" id="pdf-upload" accept="application/pdf" hidden>
-            </label>
         </header>
+        
         <div id="file-grid">
             </div>
+
+        <div class="library-actions-container">
+            <div class="glass-dock">
+                <label class="action-btn upload-btn">
+                    + Add PDF
+                    <input type="file" id="pdf-upload" accept="application/pdf" hidden>
+                </label>
+                <button class="action-btn blank-btn" onclick="createNewBlank()">
+                    New Blank Document
+                </button>
+            </div>
+        </div>
     </div>
 
     <div id="editor-view" class="hidden">
