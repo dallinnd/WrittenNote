@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Note Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="menu-dot" class="hidden" onclick="toggleMenu()">●</div>
+
+        <nav id="toolbar">
+            <div class="menu-content">
+                <div class="tool-group">
+                    <button id="btn-0" class="tool-btn active" onclick="selectTool(0)">Pen 1</button>
+                    <button id="btn-1" class="tool-btn" onclick="selectTool(1)">Pen 2</button>
+                    <button id="btn-2" class="tool-btn" onclick="selectTool(2)">Pen 3</button>
+                    <button id="btn-3" class="tool-btn" onclick="selectTool(3)">Highlighter</button>
+                </div>
+
+                <div class="divider"></div>
+
+                <div id="controls-context">
+                    <div id="color-palette"></div>
+                    <div class="weight-control">
+                        <input type="range" id="weightSlider" min="1" max="50" value="3">
+                        <span id="weightLabel">3px</span>
+                    </div>
+                </div>
+
+                <button class="shrink-btn" onclick="toggleMenu()">Collapse</button>
+            </div>
+        </nav>
+    </div>
+
+    <div id="document-container">
+        </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
