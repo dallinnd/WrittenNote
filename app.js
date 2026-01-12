@@ -1,7 +1,6 @@
 const pdfjsLib = window['pdfjs-dist/build/pdf'];
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// --- State ---
 const state = {
     library: [],
     activeTool: 0,
@@ -17,11 +16,10 @@ const state = {
 const penColors = ['#add8e6', '#00008b', '#000000', '#ff0000', '#90ee90', '#006400', '#e6e6fa', '#800080', '#ffa500', '#40e0d0'];
 const highColors = ['#ffff00', '#ffa500', '#90ee90', '#add8e6', '#ffc0cb'];
 
-// --- Library Logic ---
+// --- Library Management ---
 document.getElementById('pdf-upload').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const arrayBuffer = await file.arrayBuffer();
     const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const page = await pdfDoc.getPage(1);
@@ -31,14 +29,17 @@ document.getElementById('pdf-upload').addEventListener('change', async (e) => {
     canvas.width = viewport.width; canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 
-    state.library.push({
-        id: Date.now(),
-        name: file.name,
-        data: arrayBuffer,
-        thumbnail: canvas.toDataURL()
-    });
+    state.library.push({ id: Date.now(), name: file.name, data: arrayBuffer, isBlank: false, thumbnail: canvas.toDataURL() });
     renderLibrary();
 });
+
+function createNewBlank() {
+    const name = prompt("Document Name:", "New Notebook");
+    if (!name) return;
+    state.library.push({ id: Date.now(), name: name, data: null, isBlank: true, thumbnail: "" });
+    renderLibrary();
+    openEditor(state.library[state.library.length-1]);
+}
 
 function renderLibrary() {
     const grid = document.getElementById('file-grid');
@@ -47,59 +48,55 @@ function renderLibrary() {
         const card = document.createElement('div');
         card.className = 'pdf-card';
         card.onclick = () => openEditor(doc);
-        card.innerHTML = `<div class="preview-container"><img src="${doc.thumbnail}"></div><div class="file-name">${doc.name}</div>`;
+        const thumb = doc.isBlank ? `<div style="background:white;height:100%"></div>` : `<img src="${doc.thumbnail}">`;
+        card.innerHTML = `<div class="preview-container">${thumb}</div><div class="file-name">${doc.name}</div>`;
         grid.appendChild(card);
     });
 }
 
-// --- Editor Transition ---
+// --- Editor Logic ---
 async function openEditor(doc) {
     document.getElementById('library-view').classList.add('hidden');
     document.getElementById('editor-view').classList.remove('hidden');
     const container = document.getElementById('document-container');
     container.innerHTML = '';
 
-    const pdfDoc = await pdfjsLib.getDocument({ data: doc.data }).promise;
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const wrapper = document.createElement('div');
-        wrapper.className = 'page-wrapper';
-        wrapper.style.width = viewport.width + 'px';
-        wrapper.style.height = viewport.height + 'px';
-
-        const bg = document.createElement('canvas');
-        bg.width = viewport.width; bg.height = viewport.height;
-        const fg = document.createElement('canvas');
-        fg.className = 'draw-layer';
-        fg.width = viewport.width; fg.height = viewport.height;
-
-        wrapper.appendChild(bg);
-        wrapper.appendChild(fg);
-        container.appendChild(wrapper);
-
-        await page.render({ canvasContext: bg.getContext('2d'), viewport }).promise;
-        initDrawing(fg);
+    if (doc.isBlank) {
+        createPage(container, 816, 1056);
+    } else {
+        const pdfDoc = await pdfjsLib.getDocument({ data: doc.data }).promise;
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const viewport = page.getPageViewport({ scale: 1.5 });
+            const { bg } = createPage(container, viewport.width, viewport.height);
+            await page.render({ canvasContext: bg.getContext('2d'), viewport }).promise;
+        }
     }
-    renderPalette();
+    selectTool(0);
 }
 
-function showLibrary() {
-    document.getElementById('library-view').classList.remove('hidden');
-    document.getElementById('editor-view').classList.add('hidden');
+function createPage(container, w, h) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page-wrapper';
+    wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
+    const bg = document.createElement('canvas'); bg.width = w; bg.height = h;
+    const fg = document.createElement('canvas'); fg.className = 'draw-layer'; fg.width = w; fg.height = h;
+    wrapper.appendChild(bg); wrapper.appendChild(fg);
+    container.appendChild(wrapper);
+    initDrawing(fg);
+    return { bg, fg };
 }
 
 // --- Drawing Engine ---
 function initDrawing(canvas) {
     const ctx = canvas.getContext('2d');
-    let isDrawing = false;
-    let points = [];
+    let isDrawing = false, points = [];
 
     canvas.addEventListener('pointerdown', (e) => {
         if (e.pointerType !== 'pen' && e.buttons !== 1) return;
         isDrawing = true;
         const tool = state.tools[state.activeTool];
-        ctx.strokeStyle = tool.type === 'highlighter' ? tool.color + '88' : tool.color;
+        ctx.strokeStyle = tool.type === 'highlighter' ? tool.color + '77' : tool.color;
         ctx.lineWidth = tool.weight;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.globalCompositeOperation = tool.type === 'highlighter' ? 'multiply' : 'source-over';
@@ -120,14 +117,13 @@ function initDrawing(canvas) {
     canvas.addEventListener('pointerup', () => isDrawing = false);
 }
 
-// --- UI Controls ---
-function selectTool(index) {
-    state.activeTool = index;
-    document.querySelectorAll('.tool-btn').forEach((b, i) => b.classList.toggle('active', i === index));
+// --- UI Actions ---
+function selectTool(i) {
+    state.activeTool = i;
+    document.querySelectorAll('.tool-btn').forEach((b, idx) => b.classList.toggle('active', idx === i));
     renderPalette();
-    const tool = state.tools[index];
-    document.getElementById('weightSlider').value = tool.weight;
-    document.getElementById('weightLabel').innerText = tool.weight + 'px';
+    document.getElementById('weightSlider').value = state.tools[i].weight;
+    document.getElementById('weightLabel').innerText = state.tools[i].weight + 'px';
 }
 
 function renderPalette() {
@@ -135,11 +131,11 @@ function renderPalette() {
     palette.innerHTML = '';
     const colors = state.activeTool === 3 ? highColors : penColors;
     colors.forEach(c => {
-        const swatch = document.createElement('div');
-        swatch.className = 'color-swatch' + (state.tools[state.activeTool].color === c ? ' active' : '');
-        swatch.style.backgroundColor = c;
-        swatch.onclick = () => { state.tools[state.activeTool].color = c; renderPalette(); };
-        palette.appendChild(swatch);
+        const s = document.createElement('div');
+        s.className = 'color-swatch' + (state.tools[state.activeTool].color === c ? ' active' : '');
+        s.style.backgroundColor = c;
+        s.onclick = () => { state.tools[state.activeTool].color = c; renderPalette(); };
+        palette.appendChild(s);
     });
 }
 
@@ -148,8 +144,24 @@ document.getElementById('weightSlider').oninput = (e) => {
     document.getElementById('weightLabel').innerText = e.target.value + 'px';
 };
 
+function showLibrary() {
+    document.getElementById('library-view').classList.remove('hidden');
+    document.getElementById('editor-view').classList.add('hidden');
+}
+
 function toggleMenu() {
     state.isCollapsed = !state.isCollapsed;
     document.getElementById('toolbar').classList.toggle('collapsed', state.isCollapsed);
     document.getElementById('menu-dot').classList.toggle('hidden', !state.isCollapsed);
 }
+
+// Infinite scroll for blank docs
+document.getElementById('document-container').onscroll = (e) => {
+    const el = e.target;
+    if (el.scrollHeight - el.scrollTop <= el.clientHeight + 10) {
+        // If the current doc is blank, we can append pages
+        const activeDoc = state.library.find(d => !document.getElementById('library-view').classList.contains('hidden'));
+        // (Simplified for demo: appends to any document)
+        createPage(el, 816, 1056);
+    }
+};
